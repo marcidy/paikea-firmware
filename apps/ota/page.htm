@@ -1,0 +1,471 @@
+<html>
+  <head>
+    <meta content="text/html;charset=utf-8" http-equiv="Content-Type">
+    <meta content="utf-8" http-equiv="encoding">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="data:,">
+    <style>
+body {
+  background-color: #A0A0F0;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 12px;
+}
+.card {
+  background-color: #FFFFFF;
+  margin: 0px 5px 5px 5px;
+  border-color: #000000;
+  border-style: solid;
+  border-color: black;
+  border-width: 1px;
+}
+.card-header {
+  background-color: #C0C0C0;
+  margin-bottom: 5px;
+  border-bottom: 1px;
+  border-bottom-style: solid;
+  padding-left: 5px;
+}
+.card-body {
+  padding-left: 5px;
+}
+#messages {
+  background-color: #EEEEEE;
+  font-family: Helvetica;
+  font-size: 10px;
+  overflow: auto;
+  min-height: 75px;
+  max-height: 75px;
+}
+#messages > div {
+  margin: 0px;
+  padding: 0px;
+}
+.error {
+  background-color: #FFA0A0;
+}
+table {
+  font-size: 12;
+}
+td {
+  text-align: center;
+  padding-left: 5px;
+}
+.key {
+  padding-right: 20px;
+  border-right: 1px;
+  border-right-style: dotted;
+}
+button {
+  margin: 5px 0px 5px 0px;
+}
+    </style>
+    <script>
+
+      function sanitize(string) {
+        const map = {
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#x27;',
+          "/": '&#x2F;',
+        };
+        const reg = /[&<>"'/]/ig;
+        return string.replace(reg, (match)=>(map[match]));
+      }
+
+function log(level, msg) {
+  $("#messages").append('<div class="' + level +'">' + sanitize(msg) + '</div>');
+  $("#messages").scrollTop($("#messages")[0].scrollHeight);
+}
+
+function update(key, value) {
+  switch (key) {
+    case "info":
+      log("info", value);
+      break;
+    case "error":
+      log("error", value);
+      break;
+    case "lora/msg":
+      $("#lora_messages").append('<div class="lora-packet">' + sanitize(value) + '</div>');
+      break;
+    case "rb/msg":
+      out = JSON.stringify(value)
+      $("#rb_messages").append('<div class="rb-packet">' + sanitize(out) +'</div>');
+      break;
+    default:
+      sel = "#" + key.split("/").join("_");
+      $(sel).text(value);
+      $(sel).change()
+  }
+}
+
+class Device {
+  constructor(host) {
+    this.host = host;
+    this.connected = 0;
+    this.data = "";
+    this.send_q = [];
+  }
+
+  connect () {
+    let self = this;
+
+    this.socket = new WebSocket("ws://" + window.location.host + ":7777");
+
+    this.socket.onopen = function(e) {
+      self.connected = 1;
+      var ii;
+      var loops = self.send_q.length;
+      for (ii = 0; ii < loops; ii++) {
+        self.socket.send(self.send_q.shift());
+      };
+
+      self.send_q = [];
+    };
+
+    this.socket.onmessage = function(event) {
+      var data = JSON.parse(event.data);
+      const keys = Object.keys(data);
+
+      keys.forEach((key, index) => {update(key, data[key])});
+
+    };
+
+    this.socket.onclose = function(event) {
+      if (event.wasClean) {
+        alert(`[close] Connection closed=${event.code} reason=${event.reason}`);
+      } else {
+        alert('[close] Connection died');
+      };
+      self.connected = 0;
+    };
+
+    this.socket.onerror = function(error){
+      alert(`[error] ${error.message}`);
+    };
+  }
+
+  req (item) {
+    let out = JSON.stringify(['GET', item, []]);
+    if (this.connected) {
+      this.socket.send(out);
+    } else {
+      this.send_q.push(out);
+    };
+  }
+
+  cmd (item, params=[]) {
+    let out = JSON.stringify(['CMD', item, params]);
+    if (this.connected) {
+      this.socket.send(out);
+    } else {
+      this.send_q.push(out);
+    };
+  }
+
+};
+
+
+    </script>
+  </head>
+  <body>
+    <title>Paikea Configuration</title>
+    <div class="card" id="messages-card">
+      <div class="card-header" id="messages-card-header">Log</div>
+      <div class="card-body" id="messages">
+      </div>
+    </div>
+    <div class="card" id="device">
+      <div class="card-header" id="summary">Device Information</div>
+      <div class="card-body" id="summary=body">
+        <table>
+          <tr><td class="key">Device ID</td><td><span id="iam"></span></td></tr>
+          <tr><td class="key">Device Type</td><td><span id="dev"></span></td></tr>
+          <tr><td class="key">Battery</td><td><span id="batt_main_v"></span> Volts</td></tr>
+        </table>
+        <button id="service">Return to Service</button><br >
+        <select id="app">
+          <option value="ota">ota</option>
+          <option value="buoy">buoy</option>
+          <option value="handset">handset</option>
+          <option value="shell">shell</option>
+          <option value="irdbase">irdbase</option>
+          <option value="lorabase">lorabase</option>
+          <option value="lora_sender">lora sender</option>
+          <option value="lora_receiver">lora receiver</option>
+        </select>
+        <button id="switch-app">Switch App</button><br >
+        <button id="reset">Reset</button>
+      </div>
+    </div>
+    <div class="card" id="wifi-card">
+      <div class="card-header" id="wifi-card-header">Wifi Configuration</div>
+      <div class="card-body" id="wifi-card-body">
+        <div class="card" id="wifi-ap-card">
+          <div class="card-header" id="wifi-ap-card-header">Access Point</div>
+          <div class="card-body" id="wifi-ap-card-body">
+            <table>
+              <tr><td class="key">Enabled</td><td><span id="wifi_ap_active"></span></td></tr>
+              <tr><td class="key">SSID</td><td><span id="wifi_ap_ssid"></span></td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="card" id=wifi-sta-card>
+          <div class="card-header" id="wifi-sta-card-header">Station</div>
+          <div class="card-body" id="wifi-sta-card-body">
+            <table>
+              <tr><td class="key">Enabled</td><td><span id="wifi_net_active"></span></td></tr>
+              <tr><td class="key">MAC</td><td><span id="wifi_net_mac"></span></td></tr>
+              <tr><td class="key">Connected</td><td><span id="wifi_net_connected"></span></td></tr>
+              <tr><td class="key">Connected to AP</td><td><span id="wifi_net_ap"></span></td></tr>
+              <tr><td class="key">IP</td><td><span id="wifi_net_ip"></span></td></tr>
+              <tr><td class="key">Gateway</td><td><span id="wifi_net_gw"></span></td></tr>
+              <tr><td class="key">DNS</td><td><span id="wifi_net_dns"></span></td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="card" id="wifi-stor-card">
+          <div class="card-header" id="wifi-stor-card-header">Stored Settings</div>
+          <div class="card-body" id="wifi-stor-card-body">
+            <table>
+              <tr><td class="key">Stored SSID:</td><td> <span id="wifi_stored_ssid"></span></td></tr>
+              <tr><td class="key">New SSID:</td><td><input type="text" id="ssid" name="ssid"></td></tr>
+              <tr><td class="key">Password: </td><td><input type="text" id="pass" name="pass"></td></tr>
+              <tr><td class="key">Last Test Result:</td><td><span id="wifi_test_result"></td></tr>
+            </table>
+            <button id="test_new_sta">Test</button>
+            <button id="store_new_sta">Save on Device</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card" id="drivers-card">
+      <div class="card-header" id="drivers-card-header">Hardware Drivers</div>
+      <div class="card-body" id="drivers-card-body">
+      </div>
+      <div class="card" id="driver-gps-card">
+        <div class="card-header" id="driver-gps-header">GPS</div>
+        <div class="card-body" id="driver-gps-body">
+          <table>
+            <tr><td class="key">Enabled</td><td><span id="gps_enabled"></span></td></tr>
+            <tr><td class="key">Running</td><td><span id="gps_running"></span></td></tr>
+          </table>
+          <button id="gps_toggle">Start</button>
+          <div class="card" id="driver-gps-signal">
+            <div class="card-header" id="driver-gps-signal-header">Signal</div>
+            <div class="card-body" id="driver-gps-signal-body">
+              <table>
+                <tr><td class="key">Fix</td><td><span id="gps_signal_fix"></span></td></tr>
+                <tr><td class="key">Fix mode 1</td><td><span id="gps_signal_fix_mode1"></span></td></tr>
+                <tr><td class="key">Fix mode 2</td><td><span id="gps_signal_fix_mode2"></span></td></tr>
+                <tr><td class="key">Satellites</td><td><span id="gps_signal_num_sv"></span></td></tr>
+              </table>
+            </div>
+          </div>
+          <div class="card" id="driver-gps-location">
+            <div class="card-header" id="driver-gps-location-header">Location</div>
+            <div class="card-body" id="driver-gps-location-body">
+              <table>
+                <tr><td class="key">Time (UTC)</td><td><span id="gps_location_utc"></span></td></tr>
+                <tr><td class="key">Latitude</td><td><span id="gps_location_NS"></span> <span id="gps_location_latitude"></span></td></tr>
+                <tr><td class="key">Longitude</td><td><span id="gps_location_EW"></span> <span id="gps_location_longitude"></span></td></tr>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card" id="driver-rb-card">
+        <div class="card-header" id="driver-rb-header">RockBlock</div>
+        <div class="card-body" id="driver-rb-body">
+          <table>
+            <tr><td class="key">Enabled</td><td><span id="rb_enabled"></span></td></tr>
+            <tr><td class="key">Running</td><td><span id="rb_running"></span></td></tr>
+          </table>
+          <button id="rb_toggle">Start</button>
+          <br >
+          <div class="card">
+            <div class="card-header" id="driver-rb-status-header">Status</div>
+            <div class="card-body" id="driver-rb-status-body">
+              <table>
+                <tr><td class="key">Signal Quality</td><td><span id="rb_csq"></span></td></tr>
+                <tr><td class="key">Pending Send</td><td><span id="rb_mo_flag"></span></td></tr>
+                <tr><td class="key">Pending Receive</td><td><span id="rb_ra_flag"></span></td></tr>
+                <tr><td class="key">Received</td><td><span id="rb_mt_flag"></span></td></tr>
+                <tr><td class="key">Queued</td><td><span id="rb_queue"></span></td></tr>
+                <tr><td class="key">MOMSN</td><td><span id="rb_momsn"></span></td></tr>
+                <tr><td class="key">MTMSN</td><td><span id="rb_mtmsn"></span></td></tr>
+              </table>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header" id="driver-rb-message-header">Iridium Messages</div>
+            <div class="card-body" id="rb_messages">
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card" id="driver-lora-card">
+        <div class="card-header" id="driver-lora-header">LoRa</div>
+        <div class="card-body" id="driver-lora-body">
+          <table>
+            <tr><td class="key">Running</td><td><span id="lora_running"></span></td></tr>
+            <tr><td class="key">Last Packet RSSI</td><td><span id="lora_rssi"></td></tr>
+          </table>
+          <button id="lora_toggle">Start</button>
+          <div class="card", id="lora-send-card">
+            <div class="card-header" id="lora-send-header">Send Lora Message</div>
+            <div class="card-body" id="lora-send-body">
+              <input type="text" id="lora-text" name="lora-text" maxlength="100" /><br >
+              <button id="lora-send-msg">Send</button>
+            </div>
+          </div>
+          <div class="card" id="lora-messages-card">
+            <div class="card-header" id="lora-messages-header">LoRa Packets</div>
+            <div class="card-body" id="lora_messages">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script src="static/jquery.js" ></script>
+    <script>
+
+let device = new Device(window.location.host);
+
+$(function(){
+  $(".card-header").click(function(){
+    $(this).siblings().toggle();
+  });
+  device.connect();
+  log("info", "Requesting network parameters");
+  device.req('wifi');
+  log("info", "Requesting device drivers");
+  device.cmd('hal')
+
+  $("#gps_running").change(function() {
+    if ($("#gps_running").text() == "true") {
+      $("#gps_toggle").text("Stop");
+    } else {
+      $("#gps_toggle").text("Start");
+    };
+  });
+
+  $("#gps_enabled").change(function() {
+    if ($("#gps_enabled").text() == "1") {
+      $("#gps_enable").text("Disable");
+    } else {
+      $("#gps_enable").text("Enable");
+    };
+  });
+
+  $("#rb_running").change(function() {
+    if ($("#rb_running").text() == "true") {
+      $("#rb_toggle").text("Stop");
+    } else {
+      $("#rb_toggle").text("Start");
+    };
+  });
+
+  $("#rb_enabled").change(function() {
+    if ($("#rb_enabled").text() == "1") {
+      $("#rb_enable").text("Disable");
+    } else {
+      $("#rb_enable").text("Enable");
+    };
+  });
+
+  $("#gps_toggle").click(function() {
+    if ($(this).text() == "Start") {
+      device.cmd('start_gps');
+      $(this).text("Stop");
+    } else {
+      device.cmd('stop_gps');
+      $(this).text("Start");
+    };
+  });
+
+  $("#rb_toggle").click(function() {
+    if ($(this).text() == "Start") {
+      device.cmd('start_rb');
+      $(this).text("Stop");
+    } else {
+      device.cmd('stop_rb');
+      $(this).text("Start");
+    };
+  });
+
+  $("#lora_toggle").click(function() {
+    if ($(this).text() == "Start") {
+      device.cmd('start_lora');
+      $(this).text("Stop");
+    } else {
+      device.cmd('stop_lora');
+      $(this).text("Start");
+    };
+  });
+
+  $("#lora_running").change(function() {
+    if ($("#lora_running").text() == "true") {
+      $("#lora_toggle").text("Stop");
+    } else {
+      $("#lora_toggle").text("Start");
+    };
+  });
+
+  $("#test_new_sta").click(function() {
+    msg = "This will disconnect the device from the server, and all connected clients."
+    msg += "\n\nThe device will attempt to reconnect to the stored network on failure."
+    msg += "\n\nYou will have to reload the page after this operation."
+    msg += "\n\nProceed?"
+    if (confirm(msg)) {
+      ssid = $("#ssid").val();
+      pword = $("#pass").val();
+      device.cmd("test_new_sta", [ssid, pword]);
+    } else {
+      console.log("Cancelled");
+    }
+  });
+
+  $("#store_new_sta").click(function() {
+    msg = "This will save the wifi credentials on the device, and it will not be able to remotely recover"
+    msg += "if they are incorrect."
+    msg += "\n\nThis will not force a reconnection, though they will be used on the reboot."
+    msg += "\n\nProceed?"
+    if (confirm(msg)) {
+      ssid = $("#ssid").val();
+      pword = $("#pass").val();
+      device.cmd("store_new_sta", [ssid, pword]);
+    }
+  });
+
+  $("#lora-send-msg").click(function() {
+    msg = $("#lora-text").val();
+    $("#lora-text").val("");
+    device.cmd("send_lora", [msg]);
+  });
+
+  $("#service").click(function() {
+    msg = "This will return the device to it's primary mode on the next reset, disabling"
+    msg += " the Support Interface.\n\nProceed?"
+    if (confirm(msg)) {
+      device.cmd("service");
+    }
+  });
+
+  $("#switch-app").click(function() {
+    app = $("#app option:selected").val();
+    device.cmd("switch_app", [app]);
+  });
+
+  $("#reset").click(function() {
+    msg = "This will reset the device.\n\nProceed?"
+    if (confirm(msg)) {
+      device.cmd("reset", []);
+    }
+  });
+});
+    </script>
+  </body>
+</html>
